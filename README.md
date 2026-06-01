@@ -24,10 +24,14 @@ bind-key o display-popup -x C -y C -w 85% -h 80% -T " poplink " -d "#{pane_curre
 
 ```sh
 poplink
+poplink --history
 poplink --json
 poplink --print
 poplink --editor nvim
 ```
+
+By default, `poplink` scans only the visible pane. Use `--history` when you
+want to search the full tmux scrollback.
 
 Supported targets include:
 

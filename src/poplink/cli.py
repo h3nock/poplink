@@ -51,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Open paths and links from the current tmux pane.")
     parser.add_argument("--pane", help="tmux pane id to capture")
+    parser.add_argument("--history", action="store_true", help="scan full tmux scrollback instead of only the visible pane")
     parser.add_argument("--all", action="store_true", help="include missing paths and URLs")
     parser.add_argument("--include-urls", action="store_true", help="include HTTP/HTTPS URLs")
     parser.add_argument("--no-preview", action="store_true", help="disable fzf preview")
@@ -71,14 +72,20 @@ def _load_input(args: argparse.Namespace) -> str:
     if not shutil.which("tmux"):
         raise PoplinkError("tmux is required", 127)
 
-    pane = args.pane or ""
-    command = ["tmux", "capture-pane", "-p", "-J", "-S", "-"]
-    if pane:
-        command.extend(["-t", pane])
+    command = _capture_command(args.pane, args.history)
     result = subprocess.run(command, text=True, capture_output=True)
     if result.returncode != 0:
         raise PoplinkError(result.stderr.strip() or "failed to capture tmux pane")
     return result.stdout
+
+
+def _capture_command(pane: str | None, include_history: bool) -> list[str]:
+    command = ["tmux", "capture-pane", "-p", "-J"]
+    if include_history:
+        command.extend(["-S", "-"])
+    if pane:
+        command.extend(["-t", pane])
+    return command
 
 
 def _base_dir(args: argparse.Namespace) -> Path:

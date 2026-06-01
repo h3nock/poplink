@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from poplink.candidates import extract_candidates
+from poplink.cli import _capture_command
 
 
 class CandidateExtractionTests(unittest.TestCase):
@@ -73,6 +74,18 @@ class CandidateExtractionTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
+    def test_tmux_capture_defaults_to_visible_pane_only(self) -> None:
+        self.assertEqual(_capture_command(None, False), ["tmux", "capture-pane", "-p", "-J"])
+
+    def test_tmux_capture_can_include_full_history(self) -> None:
+        self.assertEqual(_capture_command(None, True), ["tmux", "capture-pane", "-p", "-J", "-S", "-"])
+
+    def test_tmux_capture_can_target_specific_pane(self) -> None:
+        self.assertEqual(
+            _capture_command("%3", False),
+            ["tmux", "capture-pane", "-p", "-J", "-t", "%3"],
+        )
+
     def test_json_mode_uses_input_and_base_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
