@@ -60,6 +60,7 @@ def extract_candidates(
     base_dir: Path,
     *,
     include_missing: bool = False,
+    include_dirs: bool = False,
     include_urls: bool = False,
 ) -> list[Candidate]:
     base_dir = base_dir.expanduser().resolve()
@@ -68,30 +69,40 @@ def extract_candidates(
     for line in text.splitlines():
         protected_spans = _protected_spans(line)
         trace_spans = [match.span() for match in PYTHON_TRACE_RE.finditer(line)]
-        candidates.extend(_markdown_candidates(line, base_dir, include_missing))
-        candidates.extend(_python_trace_candidates(line, base_dir, include_missing))
-        candidates.extend(_quoted_candidates(line, base_dir, include_missing, trace_spans))
-        candidates.extend(_token_candidates(line, base_dir, include_missing, protected_spans))
+        candidates.extend(_markdown_candidates(line, base_dir, include_missing, include_dirs))
+        candidates.extend(_python_trace_candidates(line, base_dir, include_missing, include_dirs))
+        candidates.extend(_quoted_candidates(line, base_dir, include_missing, include_dirs, trace_spans))
+        candidates.extend(_token_candidates(line, base_dir, include_missing, include_dirs, protected_spans))
         if include_urls:
             candidates.extend(_url_candidates(line))
 
     return _dedupe(candidates)
 
 
-def _markdown_candidates(line: str, base_dir: Path, include_missing: bool) -> Iterable[Candidate]:
+def _markdown_candidates(
+    line: str,
+    base_dir: Path,
+    include_missing: bool,
+    include_dirs: bool,
+) -> Iterable[Candidate]:
     for match in MARKDOWN_LINK_RE.finditer(line):
         target = _strip_wrapping(match.group(1).strip())
         if _looks_like_url(target):
             continue
-        candidate = _candidate_from_target(target, base_dir, "markdown", match.group(0), include_missing)
+        candidate = _candidate_from_target(target, base_dir, "markdown", match.group(0), include_missing, include_dirs)
         if candidate:
             yield candidate
 
 
-def _python_trace_candidates(line: str, base_dir: Path, include_missing: bool) -> Iterable[Candidate]:
+def _python_trace_candidates(
+    line: str,
+    base_dir: Path,
+    include_missing: bool,
+    include_dirs: bool,
+) -> Iterable[Candidate]:
     for match in PYTHON_TRACE_RE.finditer(line):
         target = f"{match.group(1)}:{match.group(2)}"
-        candidate = _candidate_from_target(target, base_dir, "trace", match.group(0), include_missing)
+        candidate = _candidate_from_target(target, base_dir, "trace", match.group(0), include_missing, include_dirs)
         if candidate:
             yield candidate
 
@@ -100,6 +111,7 @@ def _quoted_candidates(
     line: str,
     base_dir: Path,
     include_missing: bool,
+    include_dirs: bool,
     protected_spans: list[tuple[int, int]],
 ) -> Iterable[Candidate]:
     for match in QUOTED_RE.finditer(line):
@@ -108,7 +120,7 @@ def _quoted_candidates(
         target = match.group(1).strip()
         if _looks_like_url(target) or not _looks_path_like(target):
             continue
-        candidate = _candidate_from_target(target, base_dir, "quoted", match.group(0), include_missing)
+        candidate = _candidate_from_target(target, base_dir, "quoted", match.group(0), include_missing, include_dirs)
         if candidate:
             yield candidate
 
@@ -117,6 +129,7 @@ def _token_candidates(
     line: str,
     base_dir: Path,
     include_missing: bool,
+    include_dirs: bool,
     protected_spans: list[tuple[int, int]],
 ) -> Iterable[Candidate]:
     for match in TOKEN_RE.finditer(line):
@@ -125,7 +138,7 @@ def _token_candidates(
         target = _strip_trailing_punctuation(match.group("target"))
         if _looks_like_url(target) or not _looks_path_like(target):
             continue
-        candidate = _candidate_from_target(target, base_dir, "path", target, include_missing)
+        candidate = _candidate_from_target(target, base_dir, "path", target, include_missing, include_dirs)
         if candidate:
             yield candidate
 
@@ -150,6 +163,7 @@ def _candidate_from_target(
     kind: str,
     original: str,
     include_missing: bool,
+    include_dirs: bool,
 ) -> Candidate | None:
     target = _strip_wrapping(_strip_trailing_punctuation(target.strip()))
     if not target:
@@ -157,7 +171,10 @@ def _candidate_from_target(
 
     path_text, line, column = _split_location(target)
     path = _resolve_path(path_text, base_dir)
-    if not include_missing and not path.exists():
+    if path.exists():
+        if path.is_dir() and not include_dirs:
+            return None
+    elif not include_missing:
         return None
 
     return Candidate(

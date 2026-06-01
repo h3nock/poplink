@@ -23,6 +23,7 @@ def main(argv: list[str] | None = None) -> int:
             pane_text,
             base_dir,
             include_missing=args.all,
+            include_dirs=args.include_dirs or args.all,
             include_urls=args.include_urls or args.all,
         )
 
@@ -53,6 +54,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--pane", help="tmux pane id to capture")
     parser.add_argument("--history", action="store_true", help="scan full tmux scrollback instead of only the visible pane")
     parser.add_argument("--all", action="store_true", help="include missing paths and URLs")
+    parser.add_argument("--include-dirs", action="store_true", help="include directories in addition to files")
     parser.add_argument("--include-urls", action="store_true", help="include HTTP/HTTPS URLs")
     parser.add_argument("--no-preview", action="store_true", help="disable fzf preview")
     parser.add_argument("--json", action="store_true", help="print extracted candidates as JSON")

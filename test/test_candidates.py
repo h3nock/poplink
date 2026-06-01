@@ -54,6 +54,27 @@ class CandidateExtractionTests(unittest.TestCase):
 
             self.assertEqual(candidates, [])
 
+    def test_filters_directories_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "src").mkdir()
+            (base / "src" / "App.tsx").write_text("app")
+
+            candidates = extract_candidates("Open src and src/App.tsx", base)
+            displays = [candidate.display for candidate in candidates]
+
+            self.assertNotIn("src", displays)
+            self.assertIn("src/App.tsx", displays)
+
+    def test_can_include_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "src").mkdir()
+
+            candidates = extract_candidates("Open ./src", base, include_dirs=True)
+
+            self.assertEqual(candidates[0].display, "src")
+
     def test_can_include_missing_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
