@@ -101,7 +101,16 @@ def _select_candidate(candidates: list[Candidate], no_preview: bool) -> Candidat
         raise PoplinkError("fzf is required", 127)
 
     rows = [_format_row(index, candidate) for index, candidate in enumerate(candidates)]
-    command = ["fzf", "--ansi", "--delimiter", "\t", "--with-nth", "2.."]
+    command = [
+        "fzf",
+        "--ansi",
+        "--delimiter",
+        "\t",
+        "--with-nth",
+        "2..",
+        "--preview-window",
+        _preview_window(),
+    ]
     if not no_preview:
         preview = _preview_command()
         if preview:
@@ -136,11 +145,19 @@ def _preview_command() -> str | None:
         return (
             "file=$(printf '%s' {} | cut -f2 | sed -E 's/:([0-9]+)(:[0-9]+)?$//'); "
             "line=$(printf '%s' {} | cut -f2 | sed -nE 's/.*:([0-9]+)(:[0-9]+)?$/\\1/p'); "
+            "case \"$file\" in *.md|*.markdown|*.txt|*.log) wrap='--wrap=character' ;; *) wrap='' ;; esac; "
             "if [ -n \"$line\" ]; then "
-            "bat --color=always --style=numbers --highlight-line \"$line\" \"$file\" 2>/dev/null; "
-            "else bat --color=always --style=numbers \"$file\" 2>/dev/null; fi"
+            "bat --color=always --style=numbers $wrap --highlight-line \"$line\" \"$file\" 2>/dev/null; "
+            "else bat --color=always --style=numbers $wrap \"$file\" 2>/dev/null; fi"
         )
     return None
+
+
+def _preview_window() -> str:
+    columns = shutil.get_terminal_size(fallback=(120, 40)).columns
+    if columns >= 150:
+        return "right,65%,border-left"
+    return "right,70%,border-left"
 
 
 def _open_candidate(candidate: Candidate, editor: str | None) -> int:

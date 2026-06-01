@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from poplink.candidates import extract_candidates
-from poplink.cli import _capture_command
+from poplink.cli import _capture_command, _preview_window
 
 
 class CandidateExtractionTests(unittest.TestCase):
@@ -95,6 +95,9 @@ class CandidateExtractionTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
+    def test_preview_window_keeps_right_side_preview(self) -> None:
+        self.assertIn(_preview_window(), {"right,65%,border-left", "right,70%,border-left"})
+
     def test_tmux_capture_defaults_to_visible_pane_only(self) -> None:
         self.assertEqual(_capture_command(None, False), ["tmux", "capture-pane", "-p", "-J"])
 
