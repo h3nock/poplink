@@ -1,0 +1,47 @@
+# poplink
+
+Open paths from your current tmux pane without touching the mouse.
+
+`poplink` captures pane text, extracts local file paths and file locations, lets
+you choose one with `fzf`, then opens it in your editor.
+
+## Install
+
+For local development:
+
+```sh
+git clone <repo-url> ~/poplink
+export PATH="$HOME/poplink/bin:$PATH"
+```
+
+## Tmux Binding
+
+```tmux
+bind-key o display-popup -x C -y C -w 85% -h 80% -T " poplink " -d "#{pane_current_path}" -E 'poplink'
+```
+
+## Usage
+
+```sh
+poplink
+poplink --json
+poplink --print
+poplink --editor nvim
+```
+
+Supported targets include:
+
+- `/absolute/path/to/file.md`
+- `relative/path.ts:42`
+- `relative/path.ts:42:8`
+- `[markdown link](relative/path.md)`
+- Python stack trace lines like `File "app.py", line 20`
+
+## Requirements
+
+- `tmux`
+- `fzf`
+- Python 3.9+
+- `$EDITOR`, or `nvim` on `PATH`
+
+`bat` is optional and used for previews when available.
