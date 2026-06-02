@@ -1,5 +1,5 @@
 Open the private plan:
-/Users/macbook/clipper/.local/project-plan.md
+/tmp/poplink-fixture/project-plan.md
 
 Compiler output:
 src/App.tsx:42:8
@@ -8,7 +8,7 @@ Markdown link:
 [README](README.md)
 
 Quoted path with spaces:
-"/Users/macbook/My Project/file.md"
+"/tmp/My Project/file.md"
 
 Python traceback:
 File "app/main.py", line 20, in run
