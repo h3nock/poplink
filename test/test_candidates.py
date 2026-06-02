@@ -134,6 +134,28 @@ class CliTests(unittest.TestCase):
             payload = json.loads(result.stdout)
             self.assertEqual(payload[0]["display"], "README.md")
 
+    def test_no_candidates_message_explains_visible_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            pane = base / "pane.txt"
+            pane.write_text("no file references here")
+
+            result = subprocess.run(
+                [
+                    str(ROOT / "bin" / "poplink"),
+                    "--input",
+                    str(pane),
+                    "--base-dir",
+                    str(base),
+                ],
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("no local files found in visible pane", result.stderr)
+            self.assertIn("try --history", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

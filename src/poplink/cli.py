@@ -32,7 +32,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if not candidates:
-            print("poplink: no local file paths found in pane", file=sys.stderr)
+            print(f"poplink: {_no_candidates_message(args)}", file=sys.stderr)
+            _hold_on_error(args.hold_on_error)
             return 1
 
         selected = _select_candidate(candidates, args.no_preview)
@@ -46,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         return _open_candidate(selected, args.editor)
     except PoplinkError as error:
         print(f"poplink: {error}", file=sys.stderr)
+        _hold_on_error(args.hold_on_error)
         return error.status
 
 
@@ -57,12 +59,27 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--include-dirs", action="store_true", help="include directories in addition to files")
     parser.add_argument("--include-urls", action="store_true", help="include HTTP/HTTPS URLs")
     parser.add_argument("--no-preview", action="store_true", help="disable fzf preview")
+    parser.add_argument("--hold-on-error", action="store_true", help="wait for Enter before exiting after an error")
     parser.add_argument("--json", action="store_true", help="print extracted candidates as JSON")
     parser.add_argument("--print", action="store_true", help="print selected target instead of opening")
     parser.add_argument("--editor", help="editor command to use")
     parser.add_argument("--input", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--base-dir", type=Path, help=argparse.SUPPRESS)
     return parser
+
+
+def _no_candidates_message(args: argparse.Namespace) -> str:
+    scope = "scrollback" if args.history else "visible pane"
+    return f"no local files found in {scope}; try --history, --include-dirs, or --all"
+
+
+def _hold_on_error(enabled: bool) -> None:
+    if not enabled or not sys.stdin.isatty():
+        return
+    try:
+        input("\nPress enter to close...")
+    except EOFError:
+        return
 
 
 def _load_input(args: argparse.Namespace) -> str:

@@ -17,7 +17,7 @@ export PATH="$HOME/poplink/bin:$PATH"
 ## Tmux Binding
 
 ```tmux
-bind-key o display-popup -x C -y C -w 85% -h 80% -T " poplink " -d "#{pane_current_path}" -E 'poplink'
+bind-key o display-popup -x C -y C -w 92% -h 85% -T " poplink " -d "#{pane_current_path}" -E 'poplink --hold-on-error'
 ```
 
 ## Usage
@@ -26,6 +26,7 @@ bind-key o display-popup -x C -y C -w 85% -h 80% -T " poplink " -d "#{pane_curre
 poplink
 poplink --history
 poplink --include-dirs
+poplink --hold-on-error
 poplink --json
 poplink --print
 poplink --editor nvim
