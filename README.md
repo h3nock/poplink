@@ -1,6 +1,6 @@
 # poplink
 
-Open paths from your current tmux pane without touching the mouse.
+Open file paths from your current tmux pane without touching the mouse.
 
 `poplink` captures pane text, extracts local file paths and file locations, lets
 you choose one with `fzf`, then opens it in your editor.
@@ -10,7 +10,7 @@ you choose one with `fzf`, then opens it in your editor.
 For local development:
 
 ```sh
-git clone <repo-url> ~/poplink
+git clone https://github.com/h3nock/poplink ~/poplink
 export PATH="$HOME/poplink/bin:$PATH"
 ```
 
