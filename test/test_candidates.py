@@ -11,7 +11,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from poplink.candidates import extract_candidates
-from poplink.cli import _capture_command, _preview_window
+from poplink.cli import (
+    DEFAULT_CAPTURE_LINES,
+    CaptureScope,
+    _capture_command,
+    _configured_capture_lines,
+    _load_config,
+    _preview_window,
+)
 
 
 class CandidateExtractionTests(unittest.TestCase):
@@ -98,17 +105,32 @@ class CliTests(unittest.TestCase):
     def test_preview_window_keeps_right_side_preview(self) -> None:
         self.assertIn(_preview_window(), {"right,65%,border-left", "right,70%,border-left"})
 
-    def test_tmux_capture_defaults_to_visible_pane_only(self) -> None:
-        self.assertEqual(_capture_command(None, False), ["tmux", "capture-pane", "-p", "-J"])
+    def test_tmux_capture_defaults_to_recent_lines(self) -> None:
+        self.assertEqual(
+            _capture_command(None, CaptureScope("lines", DEFAULT_CAPTURE_LINES)),
+            ["tmux", "capture-pane", "-p", "-J", "-S", f"-{DEFAULT_CAPTURE_LINES}"],
+        )
+
+    def test_tmux_capture_can_scan_visible_pane_only(self) -> None:
+        self.assertEqual(_capture_command(None, CaptureScope("visible")), ["tmux", "capture-pane", "-p", "-J"])
 
     def test_tmux_capture_can_include_full_history(self) -> None:
-        self.assertEqual(_capture_command(None, True), ["tmux", "capture-pane", "-p", "-J", "-S", "-"])
+        self.assertEqual(_capture_command(None, CaptureScope("history")), ["tmux", "capture-pane", "-p", "-J", "-S", "-"])
 
     def test_tmux_capture_can_target_specific_pane(self) -> None:
         self.assertEqual(
-            _capture_command("%3", False),
-            ["tmux", "capture-pane", "-p", "-J", "-t", "%3"],
+            _capture_command("%3", CaptureScope("lines", 50)),
+            ["tmux", "capture-pane", "-p", "-J", "-S", "-50", "-t", "%3"],
         )
+
+    def test_config_can_set_default_capture_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.ini"
+            path.write_text("[capture]\nlines = 350\n")
+
+            config = _load_config(path)
+
+            self.assertEqual(_configured_capture_lines(config), 350)
 
     def test_json_mode_uses_input_and_base_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -124,6 +146,8 @@ class CliTests(unittest.TestCase):
                     str(pane),
                     "--base-dir",
                     str(base),
+                    "--config",
+                    str(base / "missing-config.ini"),
                     "--json",
                 ],
                 text=True,
@@ -134,7 +158,7 @@ class CliTests(unittest.TestCase):
             payload = json.loads(result.stdout)
             self.assertEqual(payload[0]["display"], "README.md")
 
-    def test_no_candidates_message_explains_visible_scope(self) -> None:
+    def test_no_candidates_message_explains_recent_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             pane = base / "pane.txt"
@@ -147,13 +171,15 @@ class CliTests(unittest.TestCase):
                     str(pane),
                     "--base-dir",
                     str(base),
+                    "--config",
+                    str(base / "missing-config.ini"),
                 ],
                 text=True,
                 capture_output=True,
             )
 
             self.assertEqual(result.returncode, 1)
-            self.assertIn("no local files found in visible pane", result.stderr)
+            self.assertIn(f"no local files found in last {DEFAULT_CAPTURE_LINES} lines", result.stderr)
             self.assertIn("try --history", result.stderr)
 
 

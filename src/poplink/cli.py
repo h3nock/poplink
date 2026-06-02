@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import configparser
+from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
@@ -11,13 +13,31 @@ import sys
 
 from .candidates import Candidate, extract_candidates
 
+DEFAULT_CAPTURE_LINES = 200
+
+
+@dataclass(frozen=True)
+class CaptureScope:
+    mode: str
+    lines: int | None = None
+
+    @property
+    def description(self) -> str:
+        if self.mode == "history":
+            return "full scrollback"
+        if self.mode == "visible":
+            return "visible pane"
+        return f"last {self.lines} lines"
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
 
     try:
-        pane_text = _load_input(args)
+        config = _load_config(args.config)
+        scope = _capture_scope(args, config)
+        pane_text = _load_input(args, scope)
         base_dir = _base_dir(args)
         candidates = extract_candidates(
             pane_text,
@@ -32,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if not candidates:
-            print(f"poplink: {_no_candidates_message(args)}", file=sys.stderr)
+            print(f"poplink: {_no_candidates_message(scope)}", file=sys.stderr)
             _hold_on_error(args.hold_on_error)
             return 1
 
@@ -54,7 +74,10 @@ def main(argv: list[str] | None = None) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Open paths and links from the current tmux pane.")
     parser.add_argument("--pane", help="tmux pane id to capture")
-    parser.add_argument("--history", action="store_true", help="scan full tmux scrollback instead of only the visible pane")
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument("--lines", type=_positive_int, help=f"scan the last N tmux lines (default: {DEFAULT_CAPTURE_LINES})")
+    scope.add_argument("--history", action="store_true", help="scan full tmux scrollback")
+    scope.add_argument("--visible", action="store_true", help="scan only the visible tmux pane")
     parser.add_argument("--all", action="store_true", help="include missing paths and URLs")
     parser.add_argument("--include-dirs", action="store_true", help="include directories in addition to files")
     parser.add_argument("--include-urls", action="store_true", help="include HTTP/HTTPS URLs")
@@ -63,14 +86,24 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true", help="print extracted candidates as JSON")
     parser.add_argument("--print", action="store_true", help="print selected target instead of opening")
     parser.add_argument("--editor", help="editor command to use")
+    parser.add_argument("--config", type=Path, help="config file path")
     parser.add_argument("--input", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--base-dir", type=Path, help=argparse.SUPPRESS)
     return parser
 
 
-def _no_candidates_message(args: argparse.Namespace) -> str:
-    scope = "scrollback" if args.history else "visible pane"
-    return f"no local files found in {scope}; try --history, --include-dirs, or --all"
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be an integer") from error
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than 0")
+    return parsed
+
+
+def _no_candidates_message(scope: "CaptureScope") -> str:
+    return f"no local files found in {scope.description}; try --history, --include-dirs, or --all"
 
 
 def _hold_on_error(enabled: bool) -> None:
@@ -82,7 +115,54 @@ def _hold_on_error(enabled: bool) -> None:
         return
 
 
-def _load_input(args: argparse.Namespace) -> str:
+def _default_config_path() -> Path:
+    config_home = os.environ.get("XDG_CONFIG_HOME")
+    if config_home:
+        return Path(config_home) / "poplink" / "config.ini"
+    return Path.home() / ".config" / "poplink" / "config.ini"
+
+
+def _load_config(path: Path | None) -> configparser.ConfigParser:
+    config = configparser.ConfigParser()
+    config_path = path or _default_config_path()
+    if not config_path.exists():
+        return config
+
+    try:
+        with config_path.open() as file:
+            config.read_file(file)
+    except configparser.Error as error:
+        raise PoplinkError(f"failed to parse config {config_path}: {error}") from error
+    except OSError as error:
+        raise PoplinkError(f"failed to read config {config_path}: {error}") from error
+    return config
+
+
+def _capture_scope(args: argparse.Namespace, config: configparser.ConfigParser) -> CaptureScope:
+    if args.history:
+        return CaptureScope("history")
+    if args.visible:
+        return CaptureScope("visible")
+    if args.lines is not None:
+        return CaptureScope("lines", args.lines)
+    return CaptureScope("lines", _configured_capture_lines(config))
+
+
+def _configured_capture_lines(config: configparser.ConfigParser) -> int:
+    if not config.has_option("capture", "lines"):
+        return DEFAULT_CAPTURE_LINES
+
+    raw_value = config.get("capture", "lines")
+    try:
+        lines = int(raw_value)
+    except ValueError as error:
+        raise PoplinkError("config capture.lines must be an integer") from error
+    if lines <= 0:
+        raise PoplinkError("config capture.lines must be greater than 0")
+    return lines
+
+
+def _load_input(args: argparse.Namespace, scope: CaptureScope) -> str:
     if args.input:
         return args.input.read_text()
 
@@ -91,17 +171,19 @@ def _load_input(args: argparse.Namespace) -> str:
     if not shutil.which("tmux"):
         raise PoplinkError("tmux is required", 127)
 
-    command = _capture_command(args.pane, args.history)
+    command = _capture_command(args.pane, scope)
     result = subprocess.run(command, text=True, capture_output=True)
     if result.returncode != 0:
         raise PoplinkError(result.stderr.strip() or "failed to capture tmux pane")
     return result.stdout
 
 
-def _capture_command(pane: str | None, include_history: bool) -> list[str]:
+def _capture_command(pane: str | None, scope: "CaptureScope") -> list[str]:
     command = ["tmux", "capture-pane", "-p", "-J"]
-    if include_history:
+    if scope.mode == "history":
         command.extend(["-S", "-"])
+    elif scope.mode == "lines":
+        command.extend(["-S", f"-{scope.lines}"])
     if pane:
         command.extend(["-t", pane])
     return command
