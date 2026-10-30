@@ -49,7 +49,7 @@ or `--block BLOCK_ID` to capture a particular Rex source block.
 
 A floating picker must receive the **original block ID**, because its own
 `REX_BLOCK` identifies the new picker terminal. The Rex configuration in
-`henok3878/dotfiles` binds this to `Ctrl+A o`. It starts
+`h3nock/dotfiles` binds this to `Ctrl+A o`. It starts
 `~/poplink/bin/poplink --backend rex --block SOURCE_BLOCK --hold-on-error`
 inside a floating terminal. Set `POPLINK_BIN` if you clone this repo elsewhere.
 
