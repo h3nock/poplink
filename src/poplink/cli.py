@@ -72,12 +72,14 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Open paths and links from the current tmux pane.")
+    parser = argparse.ArgumentParser(description="Open paths and links from the current tmux or Rex pane.")
+    parser.add_argument("--backend", choices=("auto", "tmux", "rex"), default="auto", help="capture backend (default: auto; nested tmux takes priority)")
     parser.add_argument("--pane", help="tmux pane id to capture")
+    parser.add_argument("--block", help="Rex source block id (required when opening from a floating picker)")
     scope = parser.add_mutually_exclusive_group()
-    scope.add_argument("--lines", type=_positive_int, help=f"scan the last N tmux lines (default: {DEFAULT_CAPTURE_LINES})")
-    scope.add_argument("--history", action="store_true", help="scan full tmux scrollback")
-    scope.add_argument("--visible", action="store_true", help="scan only the visible tmux pane")
+    scope.add_argument("--lines", type=_positive_int, help=f"scan the last N lines (default: {DEFAULT_CAPTURE_LINES})")
+    scope.add_argument("--history", action="store_true", help="scan full scrollback")
+    scope.add_argument("--visible", action="store_true", help="scan only the visible pane")
     parser.add_argument("--all", action="store_true", help="include missing paths and URLs")
     parser.add_argument("--include-dirs", action="store_true", help="include directories in addition to files")
     parser.add_argument("--include-urls", action="store_true", help="include HTTP/HTTPS URLs")
@@ -166,8 +168,8 @@ def _load_input(args: argparse.Namespace, scope: CaptureScope) -> str:
     if args.input:
         return args.input.read_text()
 
-    if not os.environ.get("TMUX"):
-        raise PoplinkError("must be run inside tmux")
+    if _backend(args) == "rex":
+        return _capture_rex(args, scope)
     if not shutil.which("tmux"):
         raise PoplinkError("tmux is required", 127)
 
@@ -176,6 +178,77 @@ def _load_input(args: argparse.Namespace, scope: CaptureScope) -> str:
     if result.returncode != 0:
         raise PoplinkError(result.stderr.strip() or "failed to capture tmux pane")
     return result.stdout
+
+
+def _backend(args: argparse.Namespace) -> str:
+    if args.pane and args.block:
+        raise PoplinkError("--pane and --block cannot be combined")
+    if args.backend == "rex" and args.pane:
+        raise PoplinkError("--pane is only supported by the tmux backend")
+    if args.backend == "tmux" and args.block:
+        raise PoplinkError("--block is only supported by the Rex backend")
+    if args.backend != "auto":
+        return args.backend
+    if args.block:
+        return "rex"
+    if args.pane or os.environ.get("TMUX"):
+        return "tmux"
+    if os.environ.get("REX_SESSION") and os.environ.get("REX_BLOCK"):
+        return "rex"
+    raise PoplinkError("must be run inside tmux or Rex (or use --input)")
+
+
+def _rex_command(args: argparse.Namespace) -> list[str]:
+    if not shutil.which("rex"):
+        raise PoplinkError("rex is required; run inside a Rex terminal", 127)
+    if not os.environ.get("REX_SESSION") or not (args.block or os.environ.get("REX_BLOCK")):
+        raise PoplinkError("Rex session and source block are required; run inside Rex or pass --block from a Rex popup")
+    command = ["rex", "--autostart=false"]
+    if os.environ.get("REX_SERVER"):
+        command.extend(["--server", os.environ["REX_SERVER"]])
+    return command
+
+
+def _run_rex(command: list[str]) -> str:
+    try:
+        result = subprocess.run(command, text=True, capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise PoplinkError(f"failed to contact Rex: {error}") from error
+    if result.returncode:
+        raise PoplinkError(result.stderr.strip() or "Rex request failed")
+    return result.stdout
+
+
+def _rex_terminal_call(args: argparse.Namespace, method: str) -> dict:
+    command = _rex_command(args) + [
+        "api", "call", "--session", os.environ["REX_SESSION"],
+        "com.superlogical.terminal." + method,
+        json.dumps({"block_id": args.block or os.environ["REX_BLOCK"], "args": {}}),
+    ]
+    try:
+        result = json.loads(_run_rex(command))
+    except json.JSONDecodeError as error:
+        raise PoplinkError(f"invalid Rex {method} response") from error
+    if not isinstance(result, dict):
+        raise PoplinkError(f"invalid Rex {method} response")
+    return result
+
+
+def _capture_rex(args: argparse.Namespace, scope: CaptureScope) -> str:
+    if scope.mode == "visible":
+        # Rex's text formatter omits blank screen rows and exposes no history
+        # boundary. Taking the last terminal-height lines can include history.
+        raise PoplinkError("Rex does not expose screen-only capture; use --lines N or --history instead of --visible")
+    command = _rex_command(args) + [
+        "capture", "--session", os.environ["REX_SESSION"],
+        "--block", args.block or os.environ["REX_BLOCK"],
+    ]
+    # Join soft wraps so references split across terminal rows are recognized.
+    command.append("--unwrap")
+    text = _run_rex(command)
+    if scope.mode == "history":
+        return text
+    return "\n".join(text.splitlines()[-scope.lines:])
 
 
 def _capture_command(pane: str | None, scope: "CaptureScope") -> list[str]:
@@ -192,6 +265,13 @@ def _capture_command(pane: str | None, scope: "CaptureScope") -> list[str]:
 def _base_dir(args: argparse.Namespace) -> Path:
     if args.base_dir:
         return args.base_dir
+    if not args.input and _backend(args) == "rex":
+        process = _rex_terminal_call(args, "process")
+        # Resolve relative paths against the source terminal, not the picker.
+        for entry in (process.get("foreground"), process.get("child")):
+            if entry and entry.get("cwd"):
+                return Path(entry["cwd"])
+        raise PoplinkError("cannot determine the Rex source directory; use --base-dir")
     return Path.cwd()
 
 
