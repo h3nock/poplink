@@ -275,6 +275,10 @@ def _open_candidate(candidate: Candidate, editor: str | None) -> int:
     if not shutil.which(editor_parts[0]):
         raise PoplinkError(f"editor not found: {editor_parts[0]}", 127)
 
+    # Popup editors should not race long-running Neovim instances over ShaDa.
+    # Respect an explicit history-file choice supplied through --editor/EDITOR.
+    if Path(editor_parts[0]).name == "nvim" and not any(part.startswith("-i") for part in editor_parts[1:]):
+        editor_parts.extend(["-i", "NONE"])
     command = editor_parts + _editor_target_args(candidate)
     return subprocess.run(command).returncode
 
